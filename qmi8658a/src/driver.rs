@@ -228,6 +228,12 @@ macro_rules! define_driver {
                 self.iface.write(qmi8658a_registers::RegisterAddress::CAL1_L.addr(), &cal) $($await)*
             }
 
+            /// Writes the CAL registers and runs a CTRL9 command with [`CTRL9_TIMEOUT_MS`].
+            $($async)? fn cal_command<D: $delay>(&mut self, cal: [u8; 8], command: Ctrl9Command, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.write_cal(cal) $($await)* ?;
+                self.ctrl9_command(command, delay, CTRL9_TIMEOUT_MS) $($await)*
+            }
+
             // --- FIFO ------------------------------------------------------------------------
 
             /// Configures the FIFO: mode, size and watermark (in samples; `0` disables the
@@ -411,6 +417,112 @@ macro_rules! define_driver {
                 let mut bytes = [0; 2];
                 self.iface.read(qmi8658a_registers::RegisterAddress::TEMP_L.addr(), &mut bytes) $($await)* ?;
                 Ok(Temperature::from_bytes(bytes))
+            }
+
+            // --- motion engines --------------------------------------------------------------
+
+            /// Disables both sensors, sends parameter sets with a CTRL9 command, and restores
+            /// `CTRL7`, also on error. The datasheet asks for disabled sensors (9.4, 10.3, 11.2).
+            $($async)? fn configure_engine<D: $delay>(&mut self, command: Ctrl9Command, sets: [[u8; 8]; 2], delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                let ctrl7 = self.read_register::<Ctrl7>() $($await)* ?;
+                self.write_register(ctrl7.with_a_en(false).with_g_en(false)) $($await)* ?;
+                let mut result = Ok(());
+                for cal in sets {
+                    result = self.cal_command(cal, command, delay) $($await)*;
+                    if result.is_err() {
+                        break;
+                    }
+                }
+
+                let restore = self.write_register(ctrl7) $($await)*;
+                result?;
+                Ok(restore?)
+            }
+
+            /// Configures any-, no- and significant-motion detection (datasheet 9.4).
+            /// Disables the sensors meanwhile and restores them afterwards.
+            pub $($async)? fn configure_motion<D: $delay>(&mut self, config: &$crate::MotionConfig, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.configure_engine(Ctrl9Command::ConfigureMotion, config.cal(), delay) $($await)*
+            }
+
+            /// Configures tap detection (datasheet 10.3). Disables the sensors meanwhile and
+            /// restores them afterwards.
+            pub $($async)? fn configure_tap<D: $delay>(&mut self, config: &$crate::TapConfig, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.configure_engine(Ctrl9Command::ConfigureTap, config.cal(), delay) $($await)*
+            }
+
+            /// Configures the pedometer (datasheet 11.2). Disables the sensors meanwhile and
+            /// restores them afterwards.
+            pub $($async)? fn configure_pedometer<D: $delay>(&mut self, config: &$crate::PedometerConfig, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.configure_engine(Ctrl9Command::ConfigurePedometer, config.cal(), delay) $($await)*
+            }
+
+            /// Enables or disables the any-, no- and significant-motion engines (`CTRL8`).
+            /// They run while the accelerometer is enabled, at its ODR.
+            pub $($async)? fn set_motion_detection(&mut self, any: bool, no: bool, significant: bool) -> Result<(), IFACE::Error> {
+                self.modify_register(|r: Ctrl8| r.with_any_motion_en(any).with_no_motion_en(no).with_sig_motion_en(significant)) $($await)*
+            }
+
+            /// Enables or disables the tap engine (`CTRL8`).
+            pub $($async)? fn set_tap_detection(&mut self, enabled: bool) -> Result<(), IFACE::Error> {
+                self.modify_register(|r: Ctrl8| r.with_tap_en(enabled)) $($await)*
+            }
+
+            /// Enables or disables the pedometer (`CTRL8`). Enabling it resets the step count
+            /// (datasheet 11.6).
+            pub $($async)? fn set_pedometer(&mut self, enabled: bool) -> Result<(), IFACE::Error> {
+                self.modify_register(|r: Ctrl8| r.with_pedo_en(enabled)) $($await)*
+            }
+
+            /// Routes the activity interrupts (any-, no-, significant-motion, tap, pedometer)
+            /// to INT1 (`true`) or INT2 (`false`, the default). Enable the pin with
+            /// [`Self::set_interrupt_outputs`].
+            pub $($async)? fn set_activity_interrupt_pin(&mut self, int1: bool) -> Result<(), IFACE::Error> {
+                self.modify_register(|r: Ctrl8| r.with_activity_int_sel(int1)) $($await)*
+            }
+
+            /// Reads `STATUS1`: the motion, tap, pedometer and Wake on Motion events.
+            ///
+            /// Reading clears the WoM event and resets the WoM interrupt line (datasheet 12.4).
+            pub $($async)? fn motion_status(&mut self) -> Result<Status1, IFACE::Error> {
+                self.read_register() $($await)*
+            }
+
+            /// Reads the axis, direction and number of the last tap.
+            pub $($async)? fn tap_status(&mut self) -> Result<TapStatus, IFACE::Error> {
+                self.read_register() $($await)*
+            }
+
+            /// Reads the 24-bit step count. It advances every `sig_count` steps.
+            pub $($async)? fn step_count(&mut self) -> Result<u32, IFACE::Error> {
+                let mut bytes = [0; 4];
+                self.iface.read(qmi8658a_registers::RegisterAddress::STEP_CNT_LOW.addr(), &mut bytes[..3]) $($await)* ?;
+                Ok(u32::from_le_bytes(bytes))
+            }
+
+            /// Resets the step count (`CTRL_CMD_RESET_PEDOMETER`).
+            pub $($async)? fn reset_step_count<D: $delay>(&mut self, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.ctrl9_command(Ctrl9Command::ResetPedometer, delay, CTRL9_TIMEOUT_MS) $($await)*
+            }
+
+            /// Enters Wake on Motion mode (datasheet 12.5): disables the sensors, sets the
+            /// accelerometer range and ODR, sends the WoM settings and enables the
+            /// accelerometer. The gyroscope stays off.
+            ///
+            /// Enable the selected interrupt pin with [`Self::set_interrupt_outputs`]. The
+            /// sensor outputs no data in WoM mode (12.1); low-power ODRs suit it.
+            pub $($async)? fn enable_wake_on_motion<D: $delay>(&mut self, scale: AccelFullScale, odr: AccelOdr, config: &$crate::WomConfig, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.set_sensors(false, false) $($await)* ?;
+                self.set_accel(scale, odr) $($await)* ?;
+                self.cal_command(config.cal(), Ctrl9Command::WriteWomSetting, delay) $($await)* ?;
+                Ok(self.set_sensors(true, false) $($await)* ?)
+            }
+
+            /// Leaves Wake on Motion mode (datasheet 12.6): disables the sensors and sends a
+            /// zero threshold. The interrupt pins return to their normal function.
+            pub $($async)? fn disable_wake_on_motion<D: $delay>(&mut self, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.set_sensors(false, false) $($await)* ?;
+                self.cal_command([0; 8], Ctrl9Command::WriteWomSetting, delay) $($await)*
             }
 
             // --- register access -------------------------------------------------------------

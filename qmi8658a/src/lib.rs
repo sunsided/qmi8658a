@@ -72,11 +72,13 @@
 pub mod asynch;
 mod data;
 mod driver;
+mod engines;
 mod fifo;
 mod interface;
 
 pub use data::{Acceleration, AngularRate, Temperature};
 pub use driver::{CTRL9_TIMEOUT_MS, Error, RESET_POLLS};
+pub use engines::{MotionConfig, PedometerConfig, TapConfig, TapPriority, WomConfig};
 pub use fifo::{FifoFrame, FifoFrames, FifoState};
 #[cfg(feature = "async")]
 pub use interface::AsyncInterface;

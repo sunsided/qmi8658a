@@ -330,3 +330,133 @@ fn fifo_six_axis_frames() {
     );
     assert_eq!(frames.count(), 1);
 }
+
+#[test]
+fn configure_engines_restores_sensors() {
+    use qmi8658a::{MotionConfig, PedometerConfig, TapConfig};
+    let model = RefCell::new(Qmi8658aModel::new());
+    let mut imu = running(&model);
+    let mut delay = FakeDelay::new(&model);
+    let motion = MotionConfig {
+        any_motion_threshold: [16; 3],
+        any_motion_axes: [true; 3],
+        any_motion_window: 2,
+        ..MotionConfig::default()
+    };
+    imu.configure_motion(&motion, &mut delay).unwrap();
+    imu.configure_tap(&TapConfig::EXAMPLE_500HZ, &mut delay)
+        .unwrap();
+    imu.configure_pedometer(&PedometerConfig::EXAMPLE_50HZ, &mut delay)
+        .unwrap();
+
+    // The model ignores parameters sent while a sensor runs.
+    assert_eq!(model.borrow().motion_parameters(), motion.cal());
+    assert_eq!(
+        model.borrow().tap_parameters(),
+        TapConfig::EXAMPLE_500HZ.cal()
+    );
+    assert_eq!(
+        model.borrow().pedometer_parameters(),
+        PedometerConfig::EXAMPLE_50HZ.cal()
+    );
+    assert_eq!(model.borrow().register(RegisterAddress::CTRL7), 0x03);
+}
+
+#[test]
+fn any_motion_on_int1() {
+    use qmi8658a::MotionConfig;
+    let model = RefCell::new(Qmi8658aModel::new());
+    let mut imu = Qmi8658a::new(FakeI2c::new(&model));
+    let mut delay = FakeDelay::new(&model);
+    imu.init(&mut delay).unwrap();
+    let motion = MotionConfig {
+        any_motion_threshold: [16; 3],
+        any_motion_axes: [true, true, true],
+        any_motion_window: 1,
+        ..MotionConfig::default()
+    };
+    imu.configure_motion(&motion, &mut delay).unwrap();
+    imu.set_motion_detection(true, false, false).unwrap();
+    imu.set_activity_interrupt_pin(true).unwrap();
+    imu.set_interrupt_outputs(true, false).unwrap();
+    imu.set_accel(AccelFullScale::G4, AccelOdr::Hz897).unwrap();
+    imu.set_sensors(true, false).unwrap();
+
+    model.borrow_mut().tick(1_000);
+    assert!(!imu.motion_status().unwrap().any_motion());
+    model.borrow_mut().set_acceleration_mg([0, 800, 0]);
+    model.borrow_mut().tick(1_000);
+    assert!(model.borrow().int1_pin());
+    assert!(imu.motion_status().unwrap().any_motion());
+    model.borrow_mut().tick(1_000);
+    assert!(!model.borrow().int1_pin());
+}
+
+#[test]
+fn tap_and_steps() {
+    use qmi8658a::{PedometerConfig, TapConfig};
+    let model = RefCell::new(Qmi8658aModel::new());
+    let mut imu = running(&model);
+    let mut delay = FakeDelay::new(&model);
+    imu.configure_tap(&TapConfig::EXAMPLE_500HZ, &mut delay)
+        .unwrap();
+    imu.configure_pedometer(&PedometerConfig::EXAMPLE_50HZ, &mut delay)
+        .unwrap();
+    imu.set_tap_detection(true).unwrap();
+    imu.set_pedometer(true).unwrap();
+
+    model.borrow_mut().tap(2, true, false);
+    model.borrow_mut().step(10);
+    let status = imu.motion_status().unwrap();
+    assert!(status.tap() && status.pedometer());
+    assert!(!imu.motion_status().unwrap().tap());
+    let tap = imu.tap_status().unwrap();
+    assert_eq!(
+        (tap.tap_axis(), tap.tap_num(), tap.tap_polarity()),
+        (2, 1, true)
+    );
+    assert_eq!(imu.step_count().unwrap(), 8);
+
+    imu.reset_step_count(&mut delay).unwrap();
+    assert_eq!(imu.step_count().unwrap(), 0);
+    model.borrow_mut().step(4);
+    assert_eq!(imu.step_count().unwrap(), 4);
+    imu.set_pedometer(false).unwrap();
+    imu.set_pedometer(true).unwrap();
+    assert_eq!(imu.step_count().unwrap(), 0);
+}
+
+#[test]
+fn wake_on_motion() {
+    use qmi8658a::WomConfig;
+    let model = RefCell::new(Qmi8658aModel::new());
+    let mut imu = running(&model);
+    let mut delay = FakeDelay::new(&model);
+    let config = WomConfig {
+        threshold_mg: 100,
+        int1: true,
+        initial_high: false,
+        blanking_samples: 0,
+    };
+    imu.enable_wake_on_motion(
+        AccelFullScale::G2,
+        AccelOdr::LowPowerHz128,
+        &config,
+        &mut delay,
+    )
+    .unwrap();
+    imu.set_interrupt_outputs(true, false).unwrap();
+    assert_eq!(model.borrow().register(RegisterAddress::CTRL7), 0x01);
+    assert_eq!(model.borrow().register(RegisterAddress::CTRL2), 0x0C);
+
+    model.borrow_mut().tick(10_000);
+    assert!(!model.borrow().int1_pin());
+    model.borrow_mut().set_acceleration_mg([300, 0, 0]);
+    model.borrow_mut().tick(8_000);
+    assert!(model.borrow().int1_pin());
+    assert!(imu.motion_status().unwrap().wom());
+    assert!(!model.borrow().int1_pin());
+
+    imu.disable_wake_on_motion(&mut delay).unwrap();
+    assert_eq!(model.borrow().register(RegisterAddress::CTRL7), 0x00);
+}
