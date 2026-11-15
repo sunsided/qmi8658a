@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = ["qmi8658a-registers"]
+exclude = ["sim/wokwi-chip", "examples"]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Markus Mayer <widemeadows@gmail.com>"]
+license = "EUPL-1.2 OR MIT OR Apache-2.0"
+homepage = "https://github.com/sunsided/qmi8658a"
+repository = "https://github.com/sunsided/qmi8658a"
+edition = "2024"
+rust-version = "1.85"
+
+[workspace.lints.clippy]
+# Modules live in `name.rs` plus `name/`, never in `name/mod.rs`.
+mod_module_files = "deny"
+
+[workspace.dependencies]
+bitfield-struct = "0.13.0"
+defmt = "1.0.1"
+embassy-futures = "0.1.2"
+embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
+fake-bus = "0.1.0"
+hardware-registers = "0.4.0"
+qmi8658a-registers = { path = "qmi8658a-registers", version = "0.1.0" }
+qmi8658a-sim = { path = "qmi8658a-sim" }
