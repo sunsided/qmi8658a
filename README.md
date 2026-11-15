@@ -26,6 +26,9 @@ firmware in [`examples/esp32c3`](examples/esp32c3) runs against the emulated chi
 `wokwi-cli`. The model's assumptions about what the datasheet leaves open are listed in
 its crate documentation and under [Gaps and contradictions](#gaps-and-contradictions).
 
+**[Try it in the browser](https://wokwi.com/projects/480780665825562625)**: an ESP32-C3 talking to the emulated QMI8658A on
+wokwi.com. Click the chip and use its acceleration, angular-rate and temperature sliders.
+
 ### Use the chip in your own Wokwi project
 
 Every [GitHub Release](https://github.com/sunsided/qmi8658a/releases) carries the chip as
@@ -38,6 +41,9 @@ latest release version written without the tag's `v` (`@v0.1.1` fails to load):
 
 This works on [wokwi.com](https://wokwi.com), in the Wokwi VS Code extension and with
 `wokwi-cli`; nothing needs to be built.
+
+For a browser demo, [`examples/arduino-esp32c3`](examples/arduino-esp32c3/README.md) has an
+Arduino sketch and `diagram.json` to paste into a new wokwi.com project.
 
 ### Run the example locally
 
