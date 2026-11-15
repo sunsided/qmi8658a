@@ -15,7 +15,6 @@
 //! On SPI, the first byte holds the read bit ([`SPI_READ`]) and the register address.
 
 #![deny(missing_docs)]
-#![deny(warnings)]
 #![no_std]
 #![forbid(unsafe_code)]
 // bitfield-struct generates `with_*_checked` setters that return `Result<_, ()>`.

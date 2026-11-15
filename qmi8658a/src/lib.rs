@@ -93,7 +93,6 @@
 //! [`qmi8658a-registers`]: https://crates.io/crates/qmi8658a-registers
 
 #![deny(missing_docs)]
-#![deny(warnings)]
 #![no_std]
 #![forbid(unsafe_code)]
 // Enables the `doc_cfg` feature when the `docsrs` configuration attribute is defined.
