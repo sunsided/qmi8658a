@@ -296,7 +296,14 @@ macro_rules! define_driver {
                 }
 
                 self.request_fifo(delay) $($await)* ?;
-                let ctrl1 = self.read_register::<Ctrl1>() $($await)* ?;
+                let ctrl1 = match self.read_register::<Ctrl1>() $($await)* {
+                    Ok(ctrl1) => ctrl1,
+                    Err(e) => {
+                        // Leave read mode even though the drain never started.
+                        let _ = self.modify_register(|r: FifoCtrl| r.with_fifo_rd_mode(false)) $($await)*;
+                        return Err(e.into());
+                    }
+                };
                 let result = match self.write_register(ctrl1.with_addr_ai(false)) $($await)* {
                     Ok(()) => self.iface.read(qmi8658a_registers::RegisterAddress::FIFO_DATA.addr(), &mut buffer[..len]) $($await)*,
                     Err(e) => Err(e),
