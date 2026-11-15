@@ -1,0 +1,8 @@
+[wokwi]
+version = 1
+elf = "target/riscv32imc-unknown-none-elf/release/qmi8658a-example-esp32c3"
+firmware = "target/riscv32imc-unknown-none-elf/release/qmi8658a-example-esp32c3"
+
+[[chip]]
+name = "qmi8658a"
+binary = "../../sim/wokwi-chip/qmi8658a.chip.wasm"

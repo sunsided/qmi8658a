@@ -1,0 +1,14 @@
+{
+  "name": "qmi8658a",
+  "author": "Markus Mayer",
+  "pins": ["VCC", "GND", "SDA", "SCL", "INT1", "INT2"],
+  "controls": [
+    { "id": "accelX", "label": "Acceleration X (mg)", "type": "range", "min": -16000, "max": 16000, "step": 1 },
+    { "id": "accelY", "label": "Acceleration Y (mg)", "type": "range", "min": -16000, "max": 16000, "step": 1 },
+    { "id": "accelZ", "label": "Acceleration Z (mg)", "type": "range", "min": -16000, "max": 16000, "step": 1 },
+    { "id": "gyroX", "label": "Angular rate X (dps)", "type": "range", "min": -2048, "max": 2048, "step": 1 },
+    { "id": "gyroY", "label": "Angular rate Y (dps)", "type": "range", "min": -2048, "max": 2048, "step": 1 },
+    { "id": "gyroZ", "label": "Angular rate Z (dps)", "type": "range", "min": -2048, "max": 2048, "step": 1 },
+    { "id": "temperature", "label": "Temperature (°C)", "type": "range", "min": -40, "max": 85, "step": 1 }
+  ]
+}
