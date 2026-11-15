@@ -1,7 +1,7 @@
 # QMI8658A on ESP32-C3
 
-Reads a QMI8658A with the blocking `qmi8658a` driver at ±8 g / ±512 dps and 56 Hz, and
-prints acceleration (g), angular rate (dps) and temperature whenever they change. It polls
+Runs the accelerometer and gyroscope self-test, then reads a QMI8658A with the blocking
+`qmi8658a` driver at ±8 g / ±512 dps and 56 Hz, and prints acceleration (g), angular rate (dps) and temperature whenever they change. It polls
 `STATUS0` for new data, so it needs no interrupt line.
 
 | ESP32-C3 | QMI8658A          |

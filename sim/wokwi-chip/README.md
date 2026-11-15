@@ -21,8 +21,8 @@ and add a `chip-qmi8658a` part to `diagram.json`.
 |--------|-------------------------------------------------------|
 | `SDA`  | I²C data (address `0x6A`)                             |
 | `SCL`  | I²C clock                                             |
-| `INT1` | INT1 output; the model has no INT1 sources, so low    |
-| `INT2` | INT2 output: the data-ready pulse, if enabled         |
+| `INT1` | INT1 output: FIFO, activity, WoM or CTRL9 handshake  |
+| `INT2` | INT2 output: DRDY, FIFO, activity, WoM or self-test   |
 
 Controls `accelX`, `accelY`, `accelZ` (mg), `gyroX`, `gyroY`, `gyroZ` (dps) and
 `temperature` (°C) are sampled every millisecond, which is also the model's time step.
