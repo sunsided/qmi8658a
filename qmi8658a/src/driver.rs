@@ -12,6 +12,13 @@ use qmi8658a_registers::{
 /// after the turn-on time.
 pub const RESET_POLLS: u32 = 10;
 
+/// The time [`ctrl9_command`](crate::Qmi8658a::ctrl9_command) waits for each half of the
+/// handshake in the typed command methods, in milliseconds.
+///
+/// The datasheet gives no command duration except about 1.5 s for calibration-on-demand
+/// (14.2).
+pub const CTRL9_TIMEOUT_MS: u32 = 100;
+
 /// An error of an operation that waits for or checks the device.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -63,9 +70,9 @@ impl Scales {
 /// `async`, and `$($await)*` is empty or `.await`.
 macro_rules! define_driver {
     ($iface:path, $delay:path, [$($async:tt)?], [$($await:tt)*]) => {
-        use $crate::driver::{Error, Scales, RESET_POLLS};
+        use $crate::driver::{Error, Scales, CTRL9_TIMEOUT_MS, RESET_POLLS};
         use $crate::interface::{I2cInterface, SpiInterface};
-        use $crate::{Acceleration, AngularRate, Temperature};
+        use $crate::{Acceleration, AngularRate, FifoFrames, FifoState, Temperature};
         use qmi8658a_registers::prelude::*;
         use qmi8658a_registers::*;
 
@@ -181,9 +188,119 @@ macro_rules! define_driver {
             }
 
             /// Enables register address auto-increment and little-endian output, which the
-            /// burst reads of this driver need. Keeps the other `CTRL1` bits.
+            /// burst reads of this driver need, and signals CTRL9 completion on
+            /// `STATUSINT.CmdDone` only (`CTRL8.bit7`), so that INT1 stays free.
+            /// Keeps the other `CTRL1` and `CTRL8` bits.
             pub $($async)? fn configure_interface(&mut self) -> Result<(), IFACE::Error> {
-                self.modify_register(|r: Ctrl1| r.with_addr_ai(true).with_be(false)) $($await)*
+                self.modify_register(|r: Ctrl1| r.with_addr_ai(true).with_be(false)) $($await)* ?;
+                self.modify_register(|r: Ctrl8| r.with_ctrl9_handshake_type(true)) $($await)*
+            }
+
+            // --- CTRL9 host commands ---------------------------------------------------------
+
+            /// Runs a CTRL9 host command (datasheet 5.10): writes `CTRL9`, waits for
+            /// `STATUSINT.CmdDone`, acknowledges with [`Ctrl9Command::Ack`] and waits for
+            /// `CmdDone` to clear. Polls every millisecond, for at most `timeout_ms` per wait.
+            ///
+            /// Commands that take parameters read them from the CAL registers; write those
+            /// first. Needs [`Self::configure_interface`] (done by [`Self::init`]).
+            pub $($async)? fn ctrl9_command<D: $delay>(&mut self, command: Ctrl9Command, delay: &mut D, timeout_ms: u32) -> Result<(), Error<IFACE::Error>> {
+                self.write_register(Ctrl9::new().with_cmd(command)) $($await)* ?;
+                self.wait_cmd_done(true, delay, timeout_ms) $($await)* ?;
+                self.write_register(Ctrl9::new().with_cmd(Ctrl9Command::Ack)) $($await)* ?;
+                self.wait_cmd_done(false, delay, timeout_ms) $($await)*
+            }
+
+            $($async)? fn wait_cmd_done<D: $delay>(&mut self, done: bool, delay: &mut D, timeout_ms: u32) -> Result<(), Error<IFACE::Error>> {
+                for _ in 0..=timeout_ms {
+                    if self.status_int() $($await)* ?.cmd_done() == done {
+                        return Ok(());
+                    }
+
+                    delay.delay_ms(1) $($await)*;
+                }
+
+                Err(Error::Timeout)
+            }
+
+            /// Writes the eight CAL registers, `CAL1_L` to `CAL4_H`, in one burst.
+            pub $($async)? fn write_cal(&mut self, cal: [u8; 8]) -> Result<(), IFACE::Error> {
+                self.iface.write(qmi8658a_registers::RegisterAddress::CAL1_L.addr(), &cal) $($await)*
+            }
+
+            // --- FIFO ------------------------------------------------------------------------
+
+            /// Configures the FIFO: mode, size and watermark (in samples; `0` disables the
+            /// watermark, and it should not exceed the size). Leaves read mode.
+            ///
+            /// With both sensors enabled, the datasheet requires the same ODR for both (8.2).
+            /// Outside bypass mode, the data-ready pulse is off (6.2).
+            pub $($async)? fn set_fifo(&mut self, mode: FifoMode, size: FifoSize, watermark: u8) -> Result<(), IFACE::Error> {
+                self.write_register(FifoWtmTh::new().with_value(watermark)) $($await)* ?;
+                self.write_register(FifoCtrl::new().with_fifo_mode(mode).with_fifo_size(size)) $($await)*
+            }
+
+            /// Routes the FIFO watermark interrupt to INT1 (`true`) or INT2 (`false`, the default).
+            pub $($async)? fn set_fifo_interrupt_pin(&mut self, int1: bool) -> Result<(), IFACE::Error> {
+                self.modify_register(|r: Ctrl1| r.with_fifo_int_sel(int1)) $($await)*
+            }
+
+            /// Reads the FIFO status and fill level.
+            pub $($async)? fn fifo_state(&mut self) -> Result<FifoState, IFACE::Error> {
+                let mut bytes = [0; 2];
+                self.iface.read(qmi8658a_registers::RegisterAddress::FIFO_SMPL_CNT.addr(), &mut bytes) $($await)* ?;
+                Ok(FifoState::from_bytes(bytes))
+            }
+
+            /// Empties the FIFO and clears its flags (`CTRL_CMD_RST_FIFO`).
+            pub $($async)? fn reset_fifo<D: $delay>(&mut self, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.ctrl9_command(Ctrl9Command::ResetFifo, delay, CTRL9_TIMEOUT_MS) $($await)*
+            }
+
+            /// Enters FIFO read mode (`CTRL_CMD_REQ_FIFO`). New samples are dropped until
+            /// read mode ends; [`Self::read_fifo`] does both.
+            pub $($async)? fn request_fifo<D: $delay>(&mut self, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.ctrl9_command(Ctrl9Command::RequestFifo, delay, CTRL9_TIMEOUT_MS) $($await)*
+            }
+
+            /// Drains whole samples from the FIFO into `buffer` and returns the number of bytes
+            /// read. Decode them with [`Self::fifo_frames`].
+            ///
+            /// Follows datasheet 8.8: reads the fill level, enters read mode, reads
+            /// `FIFO_DATA` in one burst, and leaves read mode. Address auto-increment is off
+            /// during the burst, so that it stays on `FIFO_DATA` (16.1), and is restored
+            /// afterwards, also on error.
+            pub $($async)? fn read_fifo<D: $delay>(&mut self, buffer: &mut [u8], delay: &mut D) -> Result<usize, Error<IFACE::Error>> {
+                let ctrl7 = self.read_register::<Ctrl7>() $($await)* ?;
+                let frame = FifoFrames::frame_len(ctrl7.a_en(), ctrl7.g_en()).max(6);
+                let level = usize::from(self.fifo_state() $($await)* ?.bytes);
+                let len = level.min(buffer.len()) / frame * frame;
+                if len == 0 {
+                    return Ok(0);
+                }
+
+                self.request_fifo(delay) $($await)* ?;
+                let ctrl1 = self.read_register::<Ctrl1>() $($await)* ?;
+                let result = match self.write_register(ctrl1.with_addr_ai(false)) $($await)* {
+                    Ok(()) => self.iface.read(qmi8658a_registers::RegisterAddress::FIFO_DATA.addr(), &mut buffer[..len]) $($await)*,
+                    Err(e) => Err(e),
+                };
+
+                let restore = self.write_register(ctrl1) $($await)*;
+                let leave = self.modify_register(|r: FifoCtrl| r.with_fifo_rd_mode(false)) $($await)*;
+                result?;
+                restore?;
+                leave?;
+                Ok(len)
+            }
+
+            /// Decodes FIFO data read by [`Self::read_fifo`], with the enabled sensors and
+            /// full scales. Reads `CTRL7`.
+            pub $($async)? fn fifo_frames<'a>(&mut self, data: &'a [u8]) -> Result<FifoFrames<'a>, IFACE::Error> {
+                let ctrl7 = self.read_register::<Ctrl7>() $($await)* ?;
+                let accel = if ctrl7.a_en() { Some(self.accel_full_scale() $($await)* ?) } else { None };
+                let gyro = if ctrl7.g_en() { Some(self.gyro_full_scale() $($await)* ?) } else { None };
+                Ok(FifoFrames::new(data, accel, gyro))
             }
 
             // --- accelerometer and gyroscope configuration -----------------------------------

@@ -72,17 +72,19 @@
 pub mod asynch;
 mod data;
 mod driver;
+mod fifo;
 mod interface;
 
 pub use data::{Acceleration, AngularRate, Temperature};
-pub use driver::{Error, RESET_POLLS};
+pub use driver::{CTRL9_TIMEOUT_MS, Error, RESET_POLLS};
+pub use fifo::{FifoFrame, FifoFrames, FifoState};
 #[cfg(feature = "async")]
 pub use interface::AsyncInterface;
 pub use interface::{I2cInterface, Interface, SpiInterface};
 pub use qmi8658a_registers as registers;
 pub use qmi8658a_registers::{
-    ALTERNATIVE_DEVICE_ADDRESS, AccelFullScale, AccelOdr, DEFAULT_DEVICE_ADDRESS, GyroFullScale,
-    GyroOdr, QMI8658A_WHO_AM_I, TURN_ON_TIME_MS,
+    ALTERNATIVE_DEVICE_ADDRESS, AccelFullScale, AccelOdr, Ctrl9Command, DEFAULT_DEVICE_ADDRESS,
+    FifoMode, FifoSize, GyroFullScale, GyroOdr, QMI8658A_WHO_AM_I, TURN_ON_TIME_MS,
 };
 
 pub use blocking::Qmi8658a;

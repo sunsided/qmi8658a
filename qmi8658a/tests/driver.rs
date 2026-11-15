@@ -235,3 +235,98 @@ fn async_driver() {
         );
     });
 }
+
+#[test]
+fn ctrl9_command_handshake() {
+    use qmi8658a::registers::{Ctrl8, StatusInt};
+    let model = RefCell::new(Qmi8658aModel::new());
+    let mut imu = Qmi8658a::new(FakeI2c::new(&model));
+    imu.init(&mut FakeDelay::new(&model)).unwrap();
+    assert!(Ctrl8::from(model.borrow().register(RegisterAddress::CTRL8)).ctrl9_handshake_type());
+
+    imu.set_interrupt_outputs(true, false).unwrap();
+    imu.ctrl9_command(
+        qmi8658a::Ctrl9Command::CopyUsid,
+        &mut FakeDelay::new(&model),
+        qmi8658a::CTRL9_TIMEOUT_MS,
+    )
+    .unwrap();
+    assert!(!imu.read_register::<StatusInt>().unwrap().cmd_done());
+    assert!(!model.borrow().int1_pin());
+}
+
+#[test]
+fn ctrl9_command_times_out() {
+    let mut imu = Qmi8658a::new(Constant(0x00));
+    assert_eq!(
+        imu.ctrl9_command(qmi8658a::Ctrl9Command::ResetFifo, &mut NoDelay, 5),
+        Err(Error::Timeout)
+    );
+}
+
+#[test]
+fn fifo_drain_and_frames() {
+    use qmi8658a::{FifoMode, FifoSize};
+    let model = RefCell::new(Qmi8658aModel::new());
+    model.borrow_mut().set_acceleration_mg([0, 0, 1000]);
+    let mut imu = Qmi8658a::new(FakeI2c::new(&model));
+    let mut delay = FakeDelay::new(&model);
+    imu.init(&mut delay).unwrap();
+    imu.set_fifo(FifoMode::Fifo, FifoSize::Samples16, 4)
+        .unwrap();
+    imu.set_fifo_interrupt_pin(true).unwrap();
+    imu.set_interrupt_outputs(true, false).unwrap();
+    imu.set_accel(AccelFullScale::G4, AccelOdr::Hz897).unwrap();
+    imu.set_sensors(true, false).unwrap();
+    model.borrow_mut().tick(5_000);
+
+    let state = imu.fifo_state().unwrap();
+    assert_eq!(state.bytes, 30);
+    assert!(state.status.fifo_wtm() && state.status.fifo_not_empty());
+    assert!(model.borrow().int1_pin());
+
+    // A 16-byte buffer holds two whole samples.
+    let mut buffer = [0; 16];
+    assert_eq!(imu.read_fifo(&mut buffer, &mut delay).unwrap(), 12);
+    let ctrl1 = Ctrl1::from(model.borrow().register(RegisterAddress::CTRL1));
+    assert!(ctrl1.addr_ai());
+    assert_eq!(
+        model.borrow().register(RegisterAddress::FIFO_CTRL) & 0x80,
+        0
+    );
+    let frames = imu.fifo_frames(&buffer[..12]).unwrap();
+    for frame in frames {
+        assert_eq!(frame.acceleration.unwrap().g(), [0.0, 0.0, 1.0]);
+        assert_eq!(frame.angular_rate, None);
+    }
+
+    assert_eq!(imu.fifo_state().unwrap().bytes, 18);
+    imu.reset_fifo(&mut delay).unwrap();
+    assert_eq!(imu.fifo_state().unwrap().bytes, 0);
+    assert_eq!(imu.read_fifo(&mut buffer, &mut delay).unwrap(), 0);
+}
+
+#[test]
+fn fifo_six_axis_frames() {
+    use qmi8658a::{FifoMode, FifoSize};
+    let model = RefCell::new(Qmi8658aModel::new());
+    model.borrow_mut().set_acceleration_mg([500, 0, 0]);
+    model.borrow_mut().set_angular_rate_mdps([0, -90_000, 0]);
+    let mut imu = running(&model);
+    let mut delay = FakeDelay::new(&model);
+    imu.set_fifo(FifoMode::Stream, FifoSize::Samples32, 0)
+        .unwrap();
+    model.borrow_mut().tick(100_000);
+    assert_eq!(imu.fifo_state().unwrap().bytes, 5 * 12);
+
+    let mut buffer = [0; 30];
+    assert_eq!(imu.read_fifo(&mut buffer, &mut delay).unwrap(), 24);
+    let mut frames = imu.fifo_frames(&buffer[..24]).unwrap();
+    let frame = frames.next().unwrap();
+    assert_eq!(frame.acceleration.unwrap().g(), [0.5, 0.0, 0.0]);
+    assert_eq!(
+        frame.angular_rate.unwrap().degrees_per_second(),
+        [0.0, -90.0, 0.0]
+    );
+    assert_eq!(frames.count(), 1);
+}
