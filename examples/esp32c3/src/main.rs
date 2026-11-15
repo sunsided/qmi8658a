@@ -41,6 +41,11 @@ fn main() -> ! {
     // A game reading 30 to 60 times a second needs no more than 56 Hz.
     imu.set_accel(AccelFullScale::G8, AccelOdr::Hz56).unwrap();
     imu.set_gyro(GyroFullScale::Dps512, GyroOdr::Hz56).unwrap();
+    // The self-test runs at the configured accelerometer ODR, with the sensors off.
+    let accel = imu.self_test_accel(&mut delay).expect("self-test runs");
+    let gyro = imu.self_test_gyro(&mut delay).expect("self-test runs");
+    println!("self-test accel={} gyro={}", accel.passed(), gyro.passed());
+
     imu.set_sensors(true, true).unwrap();
     println!("running accel=8g gyro=512dps odr=56Hz");
 

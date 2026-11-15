@@ -1,9 +1,10 @@
-name: Acceleration, angular rate and temperature
+name: Self-test, acceleration, angular rate and temperature
 version: 1
 author: Markus Mayer
 
 steps:
   - wait-serial: 'QMI8658A ok who_am_i=0x05'
+  - wait-serial: 'self-test accel=true gyro=true'
   - wait-serial: 'running accel=8g gyro=512dps odr=56Hz'
   - wait-serial: 'accel x=0.00 y=0.00 z=0.00 g gyro x=0.0 y=0.0 z=0.0 dps temp=25.0C'
 

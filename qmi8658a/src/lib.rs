@@ -49,12 +49,44 @@
 //! [`Qmi8658a::status`] for new data instead of `STATUSINT` bit 0: outside SyncSample
 //! mode, that bit mirrors the INT2 level (datasheet 6.2).
 //!
+//! ## CTRL9 host commands
+//!
+//! [`Qmi8658a::ctrl9_command`] runs any command of datasheet table 28 with the handshake of
+//! section 5.10. [`Qmi8658a::configure_interface`] (part of [`Qmi8658a::init`]) selects the
+//! `STATUSINT.CmdDone` handshake, so INT1 stays free. The typed methods for the FIFO, the
+//! motion engines and calibration use it with [`CTRL9_TIMEOUT_MS`], or [`COD_TIMEOUT_MS`]
+//! for calibration-on-demand.
+//!
+//! ## FIFO
+//!
+//! [`Qmi8658a::set_fifo`] selects mode, size and watermark. [`Qmi8658a::read_fifo`] drains
+//! whole samples into a buffer, following datasheet 8.8: it enters read mode, turns address
+//! auto-increment off so that the burst stays on `FIFO_DATA` (16.1), and restores it
+//! afterwards. [`Qmi8658a::fifo_frames`] decodes the bytes into [`FifoFrame`]s.
+//!
+//! ## Motion engines, self-test and calibration
+//!
+//! - Any-, no- and significant-motion: [`Qmi8658a::configure_motion`],
+//!   [`Qmi8658a::set_motion_detection`]
+//! - Tap: [`Qmi8658a::configure_tap`], [`Qmi8658a::set_tap_detection`],
+//!   [`Qmi8658a::tap_status`]
+//! - Pedometer: [`Qmi8658a::configure_pedometer`], [`Qmi8658a::set_pedometer`],
+//!   [`Qmi8658a::step_count`], [`Qmi8658a::reset_step_count`]
+//! - Event flags and routing: [`Qmi8658a::motion_status`],
+//!   [`Qmi8658a::set_activity_interrupt_pin`]
+//! - Wake on Motion: [`Qmi8658a::enable_wake_on_motion`],
+//!   [`Qmi8658a::disable_wake_on_motion`]
+//! - Self-test: [`Qmi8658a::self_test_accel`], [`Qmi8658a::self_test_gyro`]
+//! - Calibration: [`Qmi8658a::calibrate_gyro`], [`Qmi8658a::gyro_gains`],
+//!   [`Qmi8658a::apply_gyro_gains`], [`Qmi8658a::apply_accel_delta_offset`],
+//!   [`Qmi8658a::apply_gyro_delta_offset`]
+//!
 //! ## Not covered
 //!
-//! FIFO, CTRL9 host commands, SyncSample mode, the motion engines, self-test and
-//! calibration-on-demand have typed registers in [`registers`], reachable with
-//! [`Qmi8658a::read_register`], [`Qmi8658a::write_register`] and
-//! [`Qmi8658a::modify_register`], but no driver methods.
+//! SyncSample mode and the locking mechanism, `CTRL_CMD_COPY_USID`, `CTRL_CMD_SET_RPU` and
+//! `CTRL_CMD_AHB_CLOCK_GATING` have typed registers in [`registers`], reachable with
+//! [`Qmi8658a::read_register`], [`Qmi8658a::write_register`],
+//! [`Qmi8658a::modify_register`] and [`Qmi8658a::ctrl9_command`], but no typed methods.
 //!
 //! [`embedded-hal`]: https://crates.io/crates/embedded-hal
 //! [`embedded-hal-async`]: https://crates.io/crates/embedded-hal-async
@@ -72,17 +104,26 @@
 pub mod asynch;
 mod data;
 mod driver;
+mod engines;
+mod fifo;
 mod interface;
+mod self_test;
 
 pub use data::{Acceleration, AngularRate, Temperature};
-pub use driver::{Error, RESET_POLLS};
+pub use driver::{COD_TIMEOUT_MS, CTRL9_TIMEOUT_MS, Error, RESET_POLLS};
+pub use engines::{MotionConfig, PedometerConfig, TapConfig, TapPriority, WomConfig};
+pub use fifo::{FifoFrame, FifoFrames, FifoState};
 #[cfg(feature = "async")]
 pub use interface::AsyncInterface;
 pub use interface::{I2cInterface, Interface, SpiInterface};
 pub use qmi8658a_registers as registers;
 pub use qmi8658a_registers::{
-    ALTERNATIVE_DEVICE_ADDRESS, AccelFullScale, AccelOdr, DEFAULT_DEVICE_ADDRESS, GyroFullScale,
-    GyroOdr, QMI8658A_WHO_AM_I, TURN_ON_TIME_MS,
+    ALTERNATIVE_DEVICE_ADDRESS, AccelFullScale, AccelOdr, Ctrl9Command, DEFAULT_DEVICE_ADDRESS,
+    FifoMode, FifoSize, GyroFullScale, GyroOdr, QMI8658A_WHO_AM_I, TURN_ON_TIME_MS,
+};
+pub use self_test::{
+    ACCEL_SELF_TEST_MIN_MG, AccelSelfTest, GYRO_SELF_TEST_MIN_DPS, GyroSelfTest,
+    SELF_TEST_TIMEOUT_MS,
 };
 
 pub use blocking::Qmi8658a;

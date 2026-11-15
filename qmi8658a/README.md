@@ -24,6 +24,13 @@
 - Acceleration in g, angular rate in dps and temperature in °C, plus the raw values
 - Data-available status (`STATUS0`), `STATUSINT`
 - INT1/INT2 output enable and the data-ready pulse on INT2
+- CTRL9 host commands with the `STATUSINT.CmdDone` handshake and a timeout
+- FIFO: bypass, FIFO and stream mode, size, watermark, level, reset, and a drain into a
+  buffer with decoded accelerometer/gyroscope frames
+- Motion engines: any-, no- and significant-motion, tap, pedometer and Wake on Motion,
+  with their configuration, enables, interrupt routing and status
+- Accelerometer and gyroscope self-test with the datasheet limits (200 mg, 300 dps)
+- Gyroscope calibration-on-demand, gyro gain save/restore, and host delta offsets
 - Typed access to every register via `read_register`, `write_register` and `modify_register`
 
 ```rust,ignore
@@ -48,8 +55,11 @@ the register address during a burst nor outputs little-endian data.
 The data-ready pulse exists only on INT2. On boards without INT2 wired, poll `status()`
 (`STATUS0`); `STATUSINT` bit 0 mirrors the INT2 level and stays low while INT2 is high-Z.
 
-FIFO, CTRL9 host commands, SyncSample mode, the motion engines, self-test and
-calibration-on-demand are reachable through the typed registers only.
+`read_fifo` turns address auto-increment off while it drains `FIFO_DATA` and restores it
+afterwards: with auto-increment on, a burst would walk past `FIFO_DATA` (datasheet 16.1).
+
+SyncSample mode, the locking mechanism and the CTRL9 commands for the USID, pull-ups and
+clock gating are reachable through the typed registers and `ctrl9_command` only.
 
 ## Features
 

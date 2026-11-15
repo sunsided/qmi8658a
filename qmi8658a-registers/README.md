@@ -49,6 +49,16 @@ abbreviated DS below.
 | FIFO registers and read sequence | DS table 23, 8 |
 | CTRL9 commands and handshake | DS 5.10, table 28 |
 | `COD_STATUS`, `TAP_STATUS`, step count, `dQ*`/`dV*` contents | DS 5.7, 5.8, 5.10.6.11 |
+| CTRL9 handshake: CmdDone in `STATUSINT.bit7`, ACK with `0x00`, INT1 unless `CTRL8.bit7` | DS 5.10.1, 5.10.4, 5.10.5, 6.2 |
+| FIFO: 1536 bytes, 16 to 128 samples of 6 or 12 bytes, sample count in words, watermark in samples, read mode via `CTRL_CMD_REQ_FIFO`, data pattern | DS 8.1 to 8.10, table 23 |
+| Any-, no-, significant-motion parameters and `MOTION_MODE_CTRL` | DS 9.1, 9.3, 9.4, tables 32 to 34 |
+| Tap parameters, example values, `TAP_STATUS` | DS 10.2, 10.3, 10.6, tables 35, 36 |
+| Pedometer parameters and example, step count update and reset | DS 11.1 to 11.6, tables 37, 38 |
+| Activity interrupts on INT1/INT2 by `CTRL8.bit6`, flags in `STATUS1` | DS 9.6, 10.5, 11.4 |
+| Wake on Motion: threshold in mg, line select and initial level, blanking, procedure, `STATUS1` read resets the line | DS 12.2 to 12.6, table 39 |
+| Self-test procedures, 1/2048 g and 1/16 dps results, 200 mg and 300 dps limits, about 25 ODRs and 400 ms | DS 15.1, 15.2 |
+| Calibration-on-demand: sensors off, about 1.5 s, `COD_STATUS`; gyro gains in `dVX`-`dVZ`, restore via `CTRL_CMD_APPLY_GYRO_GAINS` | DS 14.2 to 14.4 |
+| Host delta offsets: signed 4.12 (accelerometer) and 11.5 (gyroscope) in `CAL1`-`CAL3` | DS 5.10.6.5, 5.10.6.6 |
 
 ### Gaps and contradictions
 
@@ -61,7 +71,20 @@ abbreviated DS below.
 | `STATUSINT` bit 0 with INT2 high-Z | mirrors "INT2 level", high-Z not covered | The driver polls `STATUS0`; the model keeps the bit low |
 | DRDY pulse width | "cleared automatically after a short duration" | The model holds INT2 high until its next time step |
 | Timestamp with both sensors | counts samples of "sensor with highest ODR" | The model counts gyroscope samples |
-| FIFO burst reads | FIFO data is read "in burst reads" (8.1), yet a burst advances the address while `ADDR_AI` is set (16.1) | The driver has no FIFO methods; see "Datasheet notes" in the repository README |
+| FIFO burst reads | FIFO data is read "in burst reads" (8.1), yet a burst advances the address while `ADDR_AI` is set (16.1) | `read_fifo` clears `ADDR_AI` for the `FIFO_DATA` burst and restores it |
+| CTRL9 durations | None, except about 1.5 s for calibration-on-demand (14.2) | Waits up to 100 ms per handshake step, 3 s for calibration-on-demand |
+| CTRL9 ACK | `CmdDone` clears after the ACK (5.10.1) | Waits for `CmdDone` to clear |
+| `CAL4_H` set selector | Tables 34, 36, 38 say `CAL4_H (7:4)`, the text says write `0x01`/`0x02` to `CAL4_H` | Writes `0x01`/`0x02` to the whole byte |
+| `AnyMotionWindow` | "1-byte format unsigned, 5-bits fraction" with "1 sample" resolution (table 32) | Treats it as a sample count |
+| Units of the host delta offsets | Formats only (4.12, 11.5), no unit or sign | Passes raw values; the model assumes g and dps, subtracted from the output |
+| Self-test completion signal | "INT2 to High, if INT2 is enabled (CTRL1.bit4 = 1), or STATUSINT.bit0 is set to 1" (15.1) | Enables INT2 during the test and polls `STATUSINT.bit0` |
+| Self-test ODR | "Set proper accelerometer ODR"; no rule for 6DOF-only codes | Uses the configured ODR |
+| Self-test result format | Called "signed U5.11" and "signed U12.4" | Reads signed 16-bit values at 1/2048 g and 1/16 dps |
+| `STATUS1` clearing | Only the WoM bit is said to clear on read (12.4) | The model clears tap, WoM and pedometer on read and keeps the motion bits as levels |
+| Tap and pedometer algorithms | Described in prose and figures, not precisely enough to reproduce | The model injects tap and step events instead |
+| FIFO overflow flag | Set on data drop, no clearing condition | The model clears it on `CTRL_CMD_RST_FIFO` and reset |
+| SyncSample mode and the locking mechanism (13) | Documented, with AHB clock gating and `Data_Lock_Delay` tables | Not implemented (not in scope); the FIFO and the motion engines need non-SyncSample mode (6.1, 9, 10, 11) |
+| `CTRL_CMD_COPY_USID`, `CTRL_CMD_SET_RPU`, `CTRL_CMD_AHB_CLOCK_GATING` | Documented, but not calibration | No typed methods; use `ctrl9_command` |
 
 ## License
 
