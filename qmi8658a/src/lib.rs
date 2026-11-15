@@ -75,9 +75,10 @@ mod driver;
 mod engines;
 mod fifo;
 mod interface;
+mod self_test;
 
 pub use data::{Acceleration, AngularRate, Temperature};
-pub use driver::{CTRL9_TIMEOUT_MS, Error, RESET_POLLS};
+pub use driver::{COD_TIMEOUT_MS, CTRL9_TIMEOUT_MS, Error, RESET_POLLS};
 pub use engines::{MotionConfig, PedometerConfig, TapConfig, TapPriority, WomConfig};
 pub use fifo::{FifoFrame, FifoFrames, FifoState};
 #[cfg(feature = "async")]
@@ -87,6 +88,10 @@ pub use qmi8658a_registers as registers;
 pub use qmi8658a_registers::{
     ALTERNATIVE_DEVICE_ADDRESS, AccelFullScale, AccelOdr, Ctrl9Command, DEFAULT_DEVICE_ADDRESS,
     FifoMode, FifoSize, GyroFullScale, GyroOdr, QMI8658A_WHO_AM_I, TURN_ON_TIME_MS,
+};
+pub use self_test::{
+    ACCEL_SELF_TEST_MIN_MG, AccelSelfTest, GYRO_SELF_TEST_MIN_DPS, GyroSelfTest,
+    SELF_TEST_TIMEOUT_MS,
 };
 
 pub use blocking::Qmi8658a;

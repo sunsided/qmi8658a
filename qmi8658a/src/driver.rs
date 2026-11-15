@@ -16,8 +16,18 @@ pub const RESET_POLLS: u32 = 10;
 /// handshake in the typed command methods, in milliseconds.
 ///
 /// The datasheet gives no command duration except about 1.5 s for calibration-on-demand
-/// (14.2).
+/// (14.2), which uses [`COD_TIMEOUT_MS`] instead.
 pub const CTRL9_TIMEOUT_MS: u32 = 100;
+
+/// The time [`calibrate_gyro`](crate::Qmi8658a::calibrate_gyro) waits for
+/// calibration-on-demand, in milliseconds (datasheet 14.2: about 1.5 s).
+pub const COD_TIMEOUT_MS: u32 = 3_000;
+
+/// The CAL registers of a host delta offset command: X, Y, Z in `CAL1` to `CAL3`.
+pub(crate) fn delta_cal(delta: [i16; 3]) -> [u8; 8] {
+    let [x, y, z] = delta.map(i16::to_le_bytes);
+    [x[0], x[1], y[0], y[1], z[0], z[1], 0, 0]
+}
 
 /// An error of an operation that waits for or checks the device.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -70,7 +80,7 @@ impl Scales {
 /// `async`, and `$($await)*` is empty or `.await`.
 macro_rules! define_driver {
     ($iface:path, $delay:path, [$($async:tt)?], [$($await:tt)*]) => {
-        use $crate::driver::{Error, Scales, CTRL9_TIMEOUT_MS, RESET_POLLS};
+        use $crate::driver::{Error, Scales, COD_TIMEOUT_MS, CTRL9_TIMEOUT_MS, RESET_POLLS};
         use $crate::interface::{I2cInterface, SpiInterface};
         use $crate::{Acceleration, AngularRate, FifoFrames, FifoState, Temperature};
         use qmi8658a_registers::prelude::*;
@@ -523,6 +533,136 @@ macro_rules! define_driver {
             pub $($async)? fn disable_wake_on_motion<D: $delay>(&mut self, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
                 self.set_sensors(false, false) $($await)* ?;
                 self.cal_command([0; 8], Ctrl9Command::WriteWomSetting, delay) $($await)*
+            }
+
+            // --- self-test -------------------------------------------------------------------
+
+            /// Runs the accelerometer self-test (datasheet 15.1) and restores `CTRL1` and
+            /// `CTRL7` afterwards, also on error. Uses the configured accelerometer ODR; the
+            /// test takes about 25 ODRs.
+            ///
+            /// The sensors are off during the test. The INT2 output is enabled while the test
+            /// runs, because the device signals completion on INT2 and `STATUSINT.bit0`.
+            pub $($async)? fn self_test_accel<D: $delay>(&mut self, delay: &mut D) -> Result<$crate::AccelSelfTest, Error<IFACE::Error>> {
+                let raw = self.self_test(false, delay) $($await)* ?;
+                Ok($crate::AccelSelfTest { raw })
+            }
+
+            /// Runs the gyroscope self-test (datasheet 15.2) and restores `CTRL1` and `CTRL7`
+            /// afterwards, also on error. Takes about 400 ms.
+            ///
+            /// The sensors are off during the test. The INT2 output is enabled while the test
+            /// runs, because the device signals completion on INT2 and `STATUSINT.bit0`.
+            pub $($async)? fn self_test_gyro<D: $delay>(&mut self, delay: &mut D) -> Result<$crate::GyroSelfTest, Error<IFACE::Error>> {
+                let raw = self.self_test(true, delay) $($await)* ?;
+                Ok($crate::GyroSelfTest { raw })
+            }
+
+            $($async)? fn self_test<D: $delay>(&mut self, gyro: bool, delay: &mut D) -> Result<[i16; 3], Error<IFACE::Error>> {
+                let ctrl1 = self.read_register::<Ctrl1>() $($await)* ?;
+                let ctrl7 = self.read_register::<Ctrl7>() $($await)* ?;
+                self.write_register(Ctrl7::new()) $($await)* ?;
+                self.write_register(ctrl1.with_int2_en(true)) $($await)* ?;
+                let result = self.run_self_test(gyro, delay) $($await)*;
+
+                // Restore, even if the test failed.
+                let stop = self.set_self_test_bit(gyro, false) $($await)*;
+                let restore1 = self.write_register(ctrl1) $($await)*;
+                let restore7 = self.write_register(ctrl7) $($await)*;
+                let raw = result?;
+                stop?;
+                restore1?;
+                restore7?;
+                Ok(raw)
+            }
+
+            $($async)? fn run_self_test<D: $delay>(&mut self, gyro: bool, delay: &mut D) -> Result<[i16; 3], Error<IFACE::Error>> {
+                self.set_self_test_bit(gyro, true) $($await)* ?;
+                self.wait_self_test(true, delay) $($await)* ?;
+                self.set_self_test_bit(gyro, false) $($await)* ?;
+                self.wait_self_test(false, delay) $($await)* ?;
+                let mut bytes = [0; 6];
+                self.iface.read(qmi8658a_registers::RegisterAddress::DVX_L.addr(), &mut bytes) $($await)* ?;
+                Ok($crate::data::i16x3(&bytes))
+            }
+
+            $($async)? fn set_self_test_bit(&mut self, gyro: bool, enabled: bool) -> Result<(), IFACE::Error> {
+                if gyro {
+                    self.modify_register(|r: Ctrl3| r.with_g_st(enabled)) $($await)*
+                } else {
+                    self.modify_register(|r: Ctrl2| r.with_a_st(enabled)) $($await)*
+                }
+            }
+
+            /// Waits until `STATUSINT.bit0` (the INT2 level) reads `level`.
+            $($async)? fn wait_self_test<D: $delay>(&mut self, level: bool, delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                for _ in 0..=$crate::SELF_TEST_TIMEOUT_MS {
+                    if self.status_int() $($await)* ?.avail() == level {
+                        return Ok(());
+                    }
+
+                    delay.delay_ms(1) $($await)*;
+                }
+
+                Err(Error::Timeout)
+            }
+
+            // --- calibration -----------------------------------------------------------------
+
+            /// Runs gyroscope calibration-on-demand (datasheet 14.2) and returns `COD_STATUS`:
+            /// `0` on success. Disables the sensors meanwhile and restores `CTRL7` afterwards.
+            /// Takes about 1.5 s; keep the device still.
+            ///
+            /// The new X and Y gains apply until the next reset; read them with
+            /// [`Self::gyro_gains`] to restore them later with [`Self::apply_gyro_gains`].
+            pub $($async)? fn calibrate_gyro<D: $delay>(&mut self, delay: &mut D) -> Result<CodStatus, Error<IFACE::Error>> {
+                let ctrl7 = self.read_register::<Ctrl7>() $($await)* ?;
+                self.write_register(ctrl7.with_a_en(false).with_g_en(false)) $($await)* ?;
+                let result = self.ctrl9_command(Ctrl9Command::OnDemandCalibration, delay, COD_TIMEOUT_MS) $($await)*;
+                let restore = self.write_register(ctrl7) $($await)*;
+                result?;
+                restore?;
+                Ok(self.read_register::<CodStatus>() $($await)* ?)
+            }
+
+            /// Reads the gyroscope X, Y and Z gains from `dVX_L` to `dVZ_H`. Valid right after
+            /// a successful [`Self::calibrate_gyro`] (datasheet 14.4).
+            pub $($async)? fn gyro_gains(&mut self) -> Result<[u16; 3], IFACE::Error> {
+                let mut bytes = [0; 6];
+                self.iface.read(qmi8658a_registers::RegisterAddress::DVX_L.addr(), &mut bytes) $($await)* ?;
+                Ok($crate::data::i16x3(&bytes).map(|v| v as u16))
+            }
+
+            /// Restores gyroscope gains saved after calibration-on-demand
+            /// (`CTRL_CMD_APPLY_GYRO_GAINS`, datasheet 14.4). Disables the sensors meanwhile
+            /// and restores `CTRL7` afterwards.
+            pub $($async)? fn apply_gyro_gains<D: $delay>(&mut self, gains: [u16; 3], delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                let [x, y, z] = gains.map(u16::to_le_bytes);
+                let cal = [x[0], x[1], y[0], y[1], z[0], z[1], 0, 0];
+                let ctrl7 = self.read_register::<Ctrl7>() $($await)* ?;
+                self.write_register(ctrl7.with_a_en(false).with_g_en(false)) $($await)* ?;
+                let result = self.cal_command(cal, Ctrl9Command::ApplyGyroGains, delay) $($await)*;
+                let restore = self.write_register(ctrl7) $($await)*;
+                result?;
+                Ok(restore?)
+            }
+
+            /// Changes the accelerometer offset by `delta` for X, Y and Z
+            /// (`CTRL_CMD_ACCEL_HOST_DELTA_OFFSET`, datasheet 5.10.6.5).
+            ///
+            /// The values are signed 4.12 fixed point (1/4096 per LSB). The change is lost on
+            /// power cycle or reset.
+            pub $($async)? fn apply_accel_delta_offset<D: $delay>(&mut self, delta: [i16; 3], delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.cal_command($crate::driver::delta_cal(delta), Ctrl9Command::AccelHostDeltaOffset, delay) $($await)*
+            }
+
+            /// Changes the gyroscope offset by `delta` for X, Y and Z
+            /// (`CTRL_CMD_GYRO_HOST_DELTA_OFFSET`, datasheet 5.10.6.6).
+            ///
+            /// The values are signed 11.5 fixed point (1/32 per LSB). The change is lost on
+            /// power cycle or reset.
+            pub $($async)? fn apply_gyro_delta_offset<D: $delay>(&mut self, delta: [i16; 3], delay: &mut D) -> Result<(), Error<IFACE::Error>> {
+                self.cal_command($crate::driver::delta_cal(delta), Ctrl9Command::GyroHostDeltaOffset, delay) $($await)*
             }
 
             // --- register access -------------------------------------------------------------
