@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["qmi8658a-registers"]
+members = ["qmi8658a-registers", "qmi8658a-sim"]
 exclude = ["sim/wokwi-chip", "examples"]
 
 [workspace.package]
