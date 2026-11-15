@@ -5,6 +5,12 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `coordinate-frame` feature: `SensorFrame<T>`, the sensor axes as
+  `coordinate_frame::EastNorthUp` (right-handed, +Z up; datasheet figure 10), for converting
+  readings into other frames.
+
 ## [0.1.0] - 2026-11-15
 
 [0.1.0]: https://github.com/sunsided/qmi8658a/releases/tag/v0.1.0

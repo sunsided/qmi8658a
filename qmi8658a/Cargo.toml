@@ -14,13 +14,16 @@ rust-version.workspace = true
 
 [features]
 async = ["dep:embedded-hal-async"]
-defmt = ["dep:defmt", "qmi8658a-registers/defmt"]
+## Coordinate-frame types for converting readings into other frames.
+coordinate-frame = ["dep:coordinate-frame"]
+defmt = ["dep:defmt", "qmi8658a-registers/defmt", "coordinate-frame?/defmt"]
 
 [lints]
 workspace = true
 
 [dependencies]
 qmi8658a-registers.workspace = true
+coordinate-frame = { workspace = true, optional = true }
 defmt = { workspace = true, optional = true }
 embedded-hal.workspace = true
 embedded-hal-async = { workspace = true, optional = true }

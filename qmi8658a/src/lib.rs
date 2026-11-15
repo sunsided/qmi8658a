@@ -128,6 +128,37 @@ pub use self_test::{
 
 pub use blocking::Qmi8658a;
 
+/// A vector in the sensor's own axes, as a coordinate-frame type.
+///
+/// Datasheet 13-52-25 Rev A, section 2, figure 10 ("Chip Orientation Coordinate System"):
+/// +Z points out of the top face of the package, and X, Y, Z form a right-handed set.
+/// Acceleration and angular rate share these axes. With +Z as Up, the right-handed X/Y
+/// pair maps to East/North, so the sensor frame is [`EastNorthUp`](coordinate_frame::EastNorthUp).
+///
+/// Wrap a reading with `SensorFrame::from` and convert it into the board's frame with `.into()`:
+///
+/// ```
+/// # use core::cell::RefCell;
+/// # use qmi8658a_sim::{FakeDelay, FakeI2c, Qmi8658aModel};
+/// use coordinate_frame::NorthEastDown;
+/// use qmi8658a::{AccelFullScale, AccelOdr, Qmi8658a, SensorFrame};
+/// # let model = RefCell::new(Qmi8658aModel::new());
+/// # model.borrow_mut().set_acceleration_mg([0, 0, 1000]);
+/// # let mut imu = Qmi8658a::new(FakeI2c::new(&model));
+/// # imu.init(&mut FakeDelay::new(&model))?;
+/// # imu.set_accel(AccelFullScale::G8, AccelOdr::Hz897)?;
+/// # imu.set_sensors(true, false)?;
+/// # model.borrow_mut().tick(1_000);
+///
+/// let accel = SensorFrame::from(imu.read_acceleration()?.g());
+/// let ned: NorthEastDown<f32> = accel.into();
+/// assert_eq!(ned.down(), -1.0);
+/// # Ok::<(), qmi8658a::Error<embedded_hal::i2c::ErrorKind>>(())
+/// ```
+#[cfg(feature = "coordinate-frame")]
+#[cfg_attr(docsrs, doc(cfg(feature = "coordinate-frame")))]
+pub type SensorFrame<T> = coordinate_frame::EastNorthUp<T>;
+
 /// The blocking driver.
 mod blocking {
     crate::driver::define_driver!(crate::Interface, embedded_hal::delay::DelayNs, [], []);
