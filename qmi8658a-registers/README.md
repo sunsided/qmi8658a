@@ -61,7 +61,7 @@ abbreviated DS below.
 | `STATUSINT` bit 0 with INT2 high-Z | mirrors "INT2 level", high-Z not covered | The driver polls `STATUS0`; the model keeps the bit low |
 | DRDY pulse width | "cleared automatically after a short duration" | The model holds INT2 high until its next time step |
 | Timestamp with both sensors | counts samples of "sensor with highest ODR" | The model counts gyroscope samples |
-| FIFO burst reads | FIFO data is read "in burst reads" (8.1), yet a burst advances the address while `ADDR_AI` is set (16.1) | The driver has no FIFO methods; see the root README |
+| FIFO burst reads | FIFO data is read "in burst reads" (8.1), yet a burst advances the address while `ADDR_AI` is set (16.1) | The driver has no FIFO methods; see "Datasheet notes" in the repository README |
 
 ## License
 
