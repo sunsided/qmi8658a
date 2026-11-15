@@ -52,6 +52,7 @@ abbreviated DS below.
 
 | Fact | Source |
 |------|--------|
+| Sensor axes: right-handed, +Z out of the top face; acceleration and angular rate share them (`SensorFrame` = `EastNorthUp`) | DS 2, figure 10 |
 | I²C address `0x6A` with `SA0` high or unconnected, `0x6B` with `SA0` low | DS table 3, 16.3.1 |
 | I²C standard and fast mode up to 400 kHz; SPI mode 0 or 3 up to 15 MHz, 4-wire by default | DS table 14, 16.2.1, table 43 |
 | SPI address byte: MSB set for reads | DS figure 28 |

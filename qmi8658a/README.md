@@ -65,6 +65,23 @@ clock gating are reachable through the typed registers and `ctrl9_command` only.
 
 - `async`: adds `qmi8658a::asynch::Qmi8658a` on `embedded-hal-async`.
 - `defmt`: derives `defmt::Format` for the public types.
+- `coordinate-frame`: adds `SensorFrame<T>`, see below.
+
+## Coordinate frame
+
+The sensor axes form a right-handed set with +Z out of the top face of the package
+(datasheet section 2, figure 10); acceleration and angular rate share them. With the
+`coordinate-frame` feature, `qmi8658a::SensorFrame<T>` names that frame as
+[`coordinate_frame::EastNorthUp`](https://docs.rs/coordinate-frame). Wrap a reading and
+convert it into the frame of your board:
+
+```rust,ignore
+use coordinate_frame::NorthEastDown;
+use qmi8658a::SensorFrame;
+
+let accel = SensorFrame::from(imu.read_acceleration()?.g());
+let ned: NorthEastDown<f32> = accel.into();
+```
 
 The driver follows the QMI8658A datasheet (document 13-52-25, Rev A); see
 [`qmi8658a-registers`](https://crates.io/crates/qmi8658a-registers) for the sources.

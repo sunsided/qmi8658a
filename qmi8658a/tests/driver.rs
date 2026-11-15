@@ -579,3 +579,20 @@ fn async_commands_fifo_and_self_test() {
         assert_eq!(frames.count(), 3);
     });
 }
+
+#[cfg(feature = "coordinate-frame")]
+#[test]
+fn sensor_frame_conversion() {
+    use coordinate_frame::NorthEastDown;
+    use qmi8658a::SensorFrame;
+    let model = RefCell::new(Qmi8658aModel::new());
+    model.borrow_mut().set_acceleration_mg([500, -250, 1000]);
+    let mut imu = running(&model);
+    model.borrow_mut().tick(18_000);
+
+    // Sensor X, Y, Z are East, North, Up.
+    let enu = SensorFrame::from(imu.read_acceleration().unwrap().g());
+    assert_eq!((enu.east(), enu.north(), enu.up()), (0.5, -0.25, 1.0));
+    let ned: NorthEastDown<f32> = enu.into();
+    assert_eq!(<[f32; 3]>::from(ned), [-0.25, 0.5, -1.0]);
+}
