@@ -5,6 +5,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-15
+
+[0.1.2]: https://github.com/sunsided/qmi8658a/releases/tag/v0.1.2
+
 ### Changed
 
 - Dropped `#![deny(warnings)]`, so a warning added by a newer compiler can no longer

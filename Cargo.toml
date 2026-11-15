@@ -4,7 +4,7 @@ members = ["qmi8658a-registers", "qmi8658a", "qmi8658a-sim"]
 exclude = ["sim/wokwi-chip", "examples"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Markus Mayer <widemeadows@gmail.com>"]
 license = "EUPL-1.2 OR MIT OR Apache-2.0"
 homepage = "https://github.com/sunsided/qmi8658a"
@@ -25,5 +25,5 @@ embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
 fake-bus = "0.1.0"
 hardware-registers = "0.4.0"
-qmi8658a-registers = { path = "qmi8658a-registers", version = "0.1.1" }
+qmi8658a-registers = { path = "qmi8658a-registers", version = "0.1.2" }
 qmi8658a-sim = { path = "qmi8658a-sim" }
